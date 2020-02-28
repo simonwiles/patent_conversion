@@ -1,0 +1,99 @@
+{
+  "PATDOC":
+  {
+    "entity": "patent",
+    "pk": "SDOBI/B200/B210/DNUM",
+    "fields":
+    {
+      "SDOBI/B500/B570/B577": "numClaims",
+      "SDOBI/B500/B540/STEXT": "Title",
+
+      "SDOCL/CL/CLM": "|claimsText",
+
+      "SDOBI/B100/B110/DNUM": "docNumber",
+      "SDOBI/B100/B130": "kindCode",
+      "SDOBI/B100/B190": "countryCode",
+
+      "SDOBI/B300/B330/CTRY": "|foreignCode",
+      "SDOBI/B300/B320/DATE": "|foreignFiling",
+
+      "SDOBI/B200/B220/DATE": "filingDate",
+      "SDOBI/B100/B140/DATE": "docDate",
+      "SDOBI/B500/B510/B511": "IPCPrimary",
+      "SDOBI/B500/B510/B512": "|IPCSecondary",
+
+      "SDOBI/B500/B520/B521": "USPCPrimary",
+      "SDOBI/B500/B520/B522": "|USPCSecondary",
+      "SDOBI/B500/B520/B522US": "USPCSecondary",
+
+      "SDOBI/B500/B510/B516": "IPCEdition",
+
+      "SDOBI/B700/B720/B721": {
+          "entity": "applicant",
+          "fields": {
+            "PARTY-US/NAM/SNM/STEXT": "applicantLast",
+            "PARTY-US/NAM/ONM/STEXT": "applicantOrgname",
+            "PARTY-US/NAM/FNM": "applicantGiven",
+            "PARTY-US/ADR/CTRY": "applicantResCountry",
+            "PARTY-US/ADR/CITY": "applicantResCity"
+          }
+      },
+
+      "SDOBI/B200/B210/DNUM": "appNum",
+      "SDOBI/B200/B211US": "seriesCode",
+
+      "SDOBI/B700/B730": {
+        "entity": "assignee",
+        "fields": {
+          "B731/PARTY-US/NAM/ONM/STEXT": "assigneeOrgname",
+          "B732US": "assigneeRole"
+        }
+      },
+
+      "SDOBI/B500/B560/B561":
+      {
+        "entity": "citation1",
+        "fields":
+        {
+          "PCIT/DOC/CTRY": "citCountry",
+          "PCIT/DOC/DNUM": "citDocnum",
+          "PCIT/DOC/KIND": "citKind",
+          "PCIT/PARTY-US/NAM/SNM/STEXT": "citName",
+          "PCIT/DOC/DATE": "citDate",
+          "CITED-BY-EXAMINER": "citBy:examiner",
+          "CITED-BY-OTHER": "citBy:other",
+          "PCIT/PNC": "citClassMain"
+        }
+      },
+
+      "SDOBI/B500/B560/B562":
+      {
+        "entity": "citation2",
+        "fields":
+        {
+          "CITED-BY-EXAMINER": "citBy:examiner",
+          "CITED-BY-OTHER": "citBy:other",
+          "NCIT/STEXT": "citOtherCit"
+        }
+      },
+      "SDOBI/B700/B745/B746/PARTY-US/NAM/SNM/STEXT": "examiner1Last",
+      "SDOBI/B700/B745/B746/PARTY-US/NAM/FNM": "examiner1First",
+      "SDOBI/B700/B745/B748US": "examiner1Dep",
+      "SDOBI/B700/B745/B747/PARTY-US/NAM/SNM/STEXT": "examiner2Last",
+      "SDOBI/B700/B745/B747/PARTY-US/NAM/FNM": "examiner2First",
+
+      "SDOBI/B600/B620/PARENT-US/PDOC/DOC/DNUM": "|relatedDocNum1",
+
+      "SDOBI/B600/B630/B631": {
+        "entity": "relatedDoc",
+        "fields": {
+          "PARENT-US/PDOC/DOC/DNUM": "relatedDocNum2",
+          "PARENT-US/PDOC/DOC/KIND": "relatedKindCode",
+          "PARENT-US/PDOC/DOC/DATE": "relatedDocDate",
+          "PARENT-US/PDOC/DOC/CTRY": "relatedCountry"
+        }
+      }
+    }
+  }
+
+}
