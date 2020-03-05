@@ -20,15 +20,21 @@
        (linked from https://www.uspto.gov/learning-and-resources/xml-resources)
        are also missing resources...
 
-    * there are multiple entities which cannot be resolved and are illegitimate in XML without
-       a specific (and missing) DTD definition.  For now, I'm manually replacing them with the
-       correct values.  Not 100% clear why these can't be dropped with `resolve_entities=False`,
-       or why, e.g. `&Circlesolid;` doesn't seem to cause problems.
-      * 06564405.xml has &thgr; -- should be &theta;
-      * 06566367.xml has &mgr; -- should be &mu;
-      * 06566367.xml has &Dgr; -- should be &Delta;
-      * 06566372.xml has &agr; → &alpha;
-      * 06566372.xml has &bgr; → &beta;
+    * new DTDs provided by Gideon solve some of these problems -- however, the following are still
+      missing:
+      - IndentingNewLine
+      - LeftBracketingBar
+      - LeftDoubleBracketingBar
+      - RightBracketingBar
+      They seem to be MathML symbols, but the mappings that I've used (deriving from
+        https://reference.wolfram.com/language/ref/character/LeftBracketingBar.html and
+        http://www.mathmlcentral.com/characters/glyphs/LeftBracketingBar.html) point to code points
+        in the PUA of the Unicode BMP -- i.e., they're only going to work with specific fonts.
+      The symbols seem like they should be part of mmlextre (see
+       https://www.w3.org/TR/REC-MathML/chap6/byalpha.html), but they're not in any of the versions
+       (sic!) of this file that I have available, or can find documented online (see, e.g.,
+       https://www.w3.org/TR/MathML2/mmlextra.html,
+       https://www.w3.org/2003/entities/mathmldoc/mmlextra.html etc.)
 
 
     ## CONFIG / DESIRED OUTPUT ISSUES
@@ -78,7 +84,15 @@ class DTDResolver(etree.Resolver):
         self.dtd_path = Path(dtd_path)
 
     def resolve(self, system_url, _public_id, context):
-        return self.resolve_filename(self.dtd_path.join(system_url), context)
+        # logging.info(system_url)
+        # logging.info(context)
+        # logging.info(os.path.join("../dtds/grant_dtds", system_url))
+        # logging.info("----")
+        path = "../dtds/grant_dtds"
+        if system_url.startswith(path):
+            return self.resolve_filename(system_url, context)
+        else:
+            return self.resolve_filename(self.dtd_path.join(system_url), context,)
 
 
 class DocdbToTabular:
@@ -175,15 +189,23 @@ def process_path(tree, path, config, record, parent_entity=None, parent_pk=None)
 def process_doc(doc):
 
     #
-    doc = doc.replace("&mgr;", "&mu;")
-    doc = doc.replace("&thgr;", "&theta;")
-    doc = doc.replace("&Dgr;", "&Delta;")
-    doc = doc.replace("&agr;", "&alpha;")
-    doc = doc.replace("&bgr;", "&beta;")
+    # doc = doc.replace("&mgr;", "&mu;")
+    # doc = doc.replace("&thgr;", "&theta;")
+    # doc = doc.replace("&Dgr;", "&Delta;")
+    # doc = doc.replace("&agr;", "&alpha;")
+    # doc = doc.replace("&bgr;", "&beta;")
+    doc = doc.replace("&IndentingNewLine;", "&#xF3A3;")
+    doc = doc.replace("&LeftBracketingBar;", "&#xF603;")
+    doc = doc.replace("&RightBracketingBar;", "&#xF604;")
+    doc = doc.replace("&LeftDoubleBracketingBar;", "&#xF605;")
+    doc = doc.replace("&RightDoubleBracketingBar;", "&#xF606;")
 
     # parser = etree.XMLParser(load_dtd=True, ns_clean=True, dtd_validation=True)
+    parser = etree.XMLParser(
+        load_dtd=True, resolve_entities=True, ns_clean=True, dtd_validation=True
+    )
     # parser = etree.XMLParser(resolve_entities=False)
-    parser = etree.XMLParser(load_dtd=True, resolve_entities=False)
+    # parser = etree.XMLParser(load_dtd=True, resolve_entities=False)
     parser.resolvers.add(DTDResolver())
     tree = etree.parse(BytesIO(doc.encode("utf8")), parser)
 
@@ -285,9 +307,13 @@ def main():
             logging.debug("Processing document %d...", i + 1)
         try:
             process_doc(doc)
-        except (AssertionError, etree.XMLSyntaxError):
+        except (AssertionError, etree.XMLSyntaxError) as exc:
             logging.debug(doc)
-            raise
+            p_id = re.search(
+                r"<B210><DNUM><PDAT>(\d+)<\/PDAT><\/DNUM><\/B210>", doc
+            ).group(1)
+            logging.warning("%s: %s", p_id, exc.msg)
+            # raise
     logging.info("...%d records processed!", i + 1)
 
     # import pprint
