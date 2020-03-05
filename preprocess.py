@@ -12,20 +12,26 @@
     # QUESTIONS / ISSUES
 
     ## DTDs and entity resolution.
-       * The DTD is here:
-         https://github.com/USPTO/PatentPublicData/blob/master/PatentDocument/src/main/resources/dtd/ST32-US-Grant-025xml.dtd
-       * but it references ST32-US-Grant-025xml.ent which is nowhere to be found in that repo...
+    * The DTD is here:
+       https://github.com/USPTO/PatentPublicData/blob/master/PatentDocument/src/main/resources/dtd/ST32-US-Grant-025xml.dtd
+       but it references ST32-US-Grant-025xml.ent which is nowhere to be found in that repo...
 
-       * DTDs from here: https://bulkdata.uspto.gov/data/patent/grant/redbook/2002/GrantV2-5DTD.zip
-         (linked from https://www.uspto.gov/learning-and-resources/xml-resources)
-         are also missing resources...
+    * DTDs from here: https://bulkdata.uspto.gov/data/patent/grant/redbook/2002/GrantV2-5DTD.zip
+       (linked from https://www.uspto.gov/learning-and-resources/xml-resources)
+       are also missing resources...
 
-    * after hacking a bit, got some stuff working:
+    * there are multiple entities which cannot be resolved and are illegitimate in XML without
+       a specific (and missing) DTD definition.  For now, I'm manually replacing them with the
+       correct values.  Not 100% clear why these can't be dropped with `resolve_entities=False`,
+       or why, e.g. `&Circlesolid;` doesn't seem to cause problems.
       * 06564405.xml has &thgr; -- should be &theta;
       * 06566367.xml has &mgr; -- should be &mu;
       * 06566367.xml has &Dgr; -- should be &Delta;
       * 06566372.xml has &agr; → &alpha;
       * 06566372.xml has &bgr; → &beta;
+
+
+    ## CONFIG / DESIRED OUTPUT ISSUES
 
     * config file has some paths which map to the same key?:
       "SDOBI/B500/B520/B522": "USPCSecondary",
@@ -43,6 +49,8 @@
        - see 06564550.xml
 
     * unextracted data (e.g. SDODE, etc.) -- really not needed?
+
+    * should we be looking to normalize esp., e.g., applicants?
 
 """
 
@@ -135,10 +143,8 @@ def process_path(tree, path, config, record, parent_entity=None, parent_pk=None)
         pk = get_pk(tree, config)
         if pk:
             srecord["id"] = pk
-        elif parent_pk:
-            srecord["id"] = f"{parent_pk}_{idx}"
         else:
-            srecord["id"] = idx
+            srecord["id"] = f"{len(TABLES[entity])}"
 
         if parent_pk:
             srecord[f"{parent_entity}_id"] = parent_pk
@@ -170,7 +176,8 @@ def process_doc(doc):
 def get_fieldnames():
     """ On python >=3.7, dictionaries maintain key order, so fields are guaranteed to be
         returned in the order in which they appear in the config file.  To guarantee this
-        on versions of python <3.7, collections.OrderedDict should be used here.
+        on versions of python <3.7 (insofar as it matters), collections.OrderedDict would
+        have to be used here.
     """
 
     fieldnames = defaultdict(list)
@@ -194,7 +201,9 @@ def get_fieldnames():
             _fieldnames.append(f"{parent_entity}_id")
         for subconfig in config["fields"].values():
             add_fieldnames(subconfig, _fieldnames, entity)
-        fieldnames[entity] = list(dict.fromkeys(_fieldnames).keys())
+        # different keys may be appending to the same table(s), so we're appending
+        #  to lists of fieldnames here.
+        fieldnames[entity] = list(dict.fromkeys(fieldnames[entity] + _fieldnames).keys())
 
     for config in CONFIG.values():
         add_fieldnames(config, [])

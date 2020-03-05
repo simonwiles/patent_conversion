@@ -52,7 +52,7 @@
 
       "SDOBI/B500/B560/B561":
       {
-        "entity": "citation1",
+        "entity": "citation",
         "fields":
         {
           "PCIT/DOC/CTRY": "citCountry",
@@ -68,7 +68,7 @@
 
       "SDOBI/B500/B560/B562":
       {
-        "entity": "citation2",
+        "entity": "citation",
         "fields":
         {
           "CITED-BY-EXAMINER": "citBy:examiner",
