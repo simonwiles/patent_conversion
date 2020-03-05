@@ -62,6 +62,7 @@ import os
 import re
 from collections import defaultdict
 from io import BytesIO
+from pathlib import Path
 
 from lxml import etree
 
@@ -73,31 +74,48 @@ TABLES = defaultdict(list)
 
 
 class DTDResolver(etree.Resolver):
+    def __init__(self, dtd_path):
+        self.dtd_path = Path(dtd_path)
+
     def resolve(self, system_url, _public_id, context):
-        return self.resolve_filename(os.path.join("dtds", system_url), context,)
+        return self.resolve_filename(self.dtd_path.join(system_url), context)
 
 
-def get_all_xml_docs(filepath):
-    with open(filepath, "r") as _fh:
-        data = _fh.read()
-    return re.split(r"\n(?=<\?xml)", data)
+class DocdbToTabular:
+    def __init__(self, xml_source, config, dtd_path, recurse):
+        self.xml_files = Path(xml_source)
+        if self.xml_files.is_file():
+            self.xml_files = [self.xml_files]
+        elif self.xml_files.is_dir():
+            self.xml_files = self.xml_files.glob(f'{"**/" if recurse else ""}*.xml')
+        else:
+            logging.fatal("specified input is invalid")
+            exit(1)
 
+        pass
 
-def yield_xml_doc(filepath):
-    xml_doc = []
-    with open(filepath, "r") as _fh:
-        for line in _fh:
-            if line.startswith("<?xml"):
-                if xml_doc:
-                    yield "".join(xml_doc)
-                xml_doc = []
-            xml_doc.append(line)
+    @staticmethod
+    def get_all_xml_docs(filepath):
+        with open(filepath, "r") as _fh:
+            data = _fh.read()
+        return re.split(r"\n(?=<\?xml)", data)
 
+    @staticmethod
+    def yield_xml_doc(filepath):
+        xml_doc = []
+        with open(filepath, "r") as _fh:
+            for line in _fh:
+                if line.startswith("<?xml"):
+                    if xml_doc:
+                        yield "".join(xml_doc)
+                    xml_doc = []
+                xml_doc.append(line)
 
-def get_text(elem):
-    return re.sub(
-        r"\s+", " ", etree.tostring(elem, method="text", encoding="unicode")
-    ).strip()
+    @staticmethod
+    def get_text(elem):
+        return re.sub(
+            r"\s+", " ", etree.tostring(elem, method="text", encoding="unicode")
+        ).strip()
 
 
 def get_pk(tree, config):
@@ -203,7 +221,9 @@ def get_fieldnames():
             add_fieldnames(subconfig, _fieldnames, entity)
         # different keys may be appending to the same table(s), so we're appending
         #  to lists of fieldnames here.
-        fieldnames[entity] = list(dict.fromkeys(fieldnames[entity] + _fieldnames).keys())
+        fieldnames[entity] = list(
+            dict.fromkeys(fieldnames[entity] + _fieldnames).keys()
+        )
 
     for config in CONFIG.values():
         add_fieldnames(config, [])
@@ -216,10 +236,41 @@ def main():
     arg_parser = argparse.ArgumentParser(description="Description: {}".format(__file__))
 
     arg_parser.add_argument(
-        "-v", "--verbose", action="store_true", default=False, help="Increase verbosity"
+        "-v", "--verbose", action="store_true", default=False, help="increase verbosity"
     )
     arg_parser.add_argument(
         "-q", "--quiet", action="store_true", default=False, help="quiet operation"
+    )
+
+    arg_parser.add_argument(
+        "-x",
+        "--xml-source",
+        action="store",
+        required=True,
+        help='"XML" file or directory to parse recursively',
+    )
+
+    arg_parser.add_argument(
+        "-c",
+        "--config",
+        action="store",
+        required=True,
+        help="config file (in JSON format) describing the fields to extract from the XML",
+    )
+
+    arg_parser.add_argument(
+        "-d",
+        "--dtd-path",
+        action="store",
+        required=True,
+        help="path to folder where dtds and related documents can be found",
+    )
+
+    parser.add_argument(
+        "-r",
+        "--recurse",
+        action="store_true",
+        help='if supplied, the parser will search subdirectories for "XML" files to parse',
     )
 
     args = arg_parser.parse_args()
