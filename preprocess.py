@@ -30,11 +30,13 @@
         https://reference.wolfram.com/language/ref/character/LeftBracketingBar.html and
         http://www.mathmlcentral.com/characters/glyphs/LeftBracketingBar.html) point to code points
         in the PUA of the Unicode BMP -- i.e., they're only going to work with specific fonts.
-      The symbols seem like they should be part of mmlextre (see
+      The symbols seem like they should be part of mmlextra (see
        https://www.w3.org/TR/REC-MathML/chap6/byalpha.html), but they're not in any of the versions
-       (sic!) of this file that I have available, or can find documented online (see, e.g.,
+       (plural!) of this file that I have available, or can find documented online (see, e.g.,
        https://www.w3.org/TR/MathML2/mmlextra.html,
        https://www.w3.org/2003/entities/mathmldoc/mmlextra.html etc.)
+
+      See `replace_missing_mathml_ents()` below...
 
 
     ## CONFIG / DESIRED OUTPUT ISSUES
@@ -64,7 +66,6 @@ import argparse
 import csv
 import json
 import logging
-import os
 import re
 from collections import defaultdict
 from io import BytesIO
@@ -72,11 +73,25 @@ from pathlib import Path
 
 from lxml import etree
 
-INPUT_FILE = "../SamplePatentFiles/pg030520.xml"
-CONFIG = json.load(open("config.json"))
+try:
+    from termcolor import colored
+except ImportError:
+    logging.debug("termcolor (pip install termcolor) not available")
+
+    def colored(text, _color):
+        """ Dummy function in case termcolor is not available. """
+        return text
 
 
-TABLES = defaultdict(list)
+def replace_missing_mathml_ents(doc):
+    """ Substitute out some undefined entities that appear in the XML -- see notes
+        for further details. """
+    doc = doc.replace("&IndentingNewLine;", "&#xF3A3;")
+    doc = doc.replace("&LeftBracketingBar;", "&#xF603;")
+    doc = doc.replace("&RightBracketingBar;", "&#xF604;")
+    doc = doc.replace("&LeftDoubleBracketingBar;", "&#xF605;")
+    doc = doc.replace("&RightDoubleBracketingBar;", "&#xF606;")
+    return doc
 
 
 class DTDResolver(etree.Resolver):
@@ -84,20 +99,19 @@ class DTDResolver(etree.Resolver):
         self.dtd_path = Path(dtd_path)
 
     def resolve(self, system_url, _public_id, context):
-        # logging.info(system_url)
-        # logging.info(context)
-        # logging.info(os.path.join("../dtds/grant_dtds", system_url))
-        # logging.info("----")
-        path = "../dtds/grant_dtds"
-        if system_url.startswith(path):
+        if system_url.startswith(str(self.dtd_path)):
             return self.resolve_filename(system_url, context)
         else:
-            return self.resolve_filename(self.dtd_path.join(system_url), context,)
+            return self.resolve_filename(
+                str((self.dtd_path / system_url).resolve()), context,
+            )
 
 
 class DocdbToTabular:
-    def __init__(self, xml_source, config, dtd_path, recurse):
-        self.xml_files = Path(xml_source)
+    def __init__(
+        self, xml_input, config, dtd_path, recurse, output_path, no_validate, **_kwargs
+    ):
+        self.xml_files = Path(xml_input)
         if self.xml_files.is_file():
             self.xml_files = [self.xml_files]
         elif self.xml_files.is_dir():
@@ -106,7 +120,24 @@ class DocdbToTabular:
             logging.fatal("specified input is invalid")
             exit(1)
 
-        pass
+        # do this now, because we don't want to process all that data and then find
+        #  the output_path is invalid... :)
+        self.output_path = Path(output_path)
+        self.output_path.mkdir(parents=True, exist_ok=True)
+
+        self.config = json.load(open(config))
+
+        self.tables = defaultdict(list)
+
+        if no_validate:
+            self.parser = etree.XMLParser(
+                load_dtd=True, resolve_entities=True, ns_clean=True
+            )
+        else:
+            self.parser = etree.XMLParser(
+                load_dtd=True, resolve_entities=True, ns_clean=True, dtd_validation=True
+            )
+        self.parser.resolvers.add(DTDResolver(dtd_path))
 
     @staticmethod
     def get_all_xml_docs(filepath):
@@ -131,126 +162,146 @@ class DocdbToTabular:
             r"\s+", " ", etree.tostring(elem, method="text", encoding="unicode")
         ).strip()
 
+    def get_pk(self, tree, config):
+        if config.get("pk", None):
+            elems = tree.findall("./" + config["pk"])
+            assert len(elems) == 1
+            return self.get_text(elems[0])
+        return None
 
-def get_pk(tree, config):
-    if config.get("pk", None):
-        elems = tree.findall("./" + config["pk"])
-        assert len(elems) == 1
-        return get_text(elems[0])
-    return None
+    def process_path(
+        self, tree, path, config, record, parent_entity=None, parent_pk=None
+    ):
 
+        try:
+            elems = [tree.getroot()]
+        except AttributeError:
+            elems = tree.findall("./" + path)
 
-def process_path(tree, path, config, record, parent_entity=None, parent_pk=None):
-
-    try:
-        elems = [tree.getroot()]
-    except:
-        elems = tree.findall("./" + path)
-
-    if isinstance(config, str):
-        if elems:
-
-            if config.startswith("|"):
-                record[config[1:]] = "|".join([get_text(elem) for elem in elems])
-                return
-
-            try:
-                assert len(elems) == 1
-            except AssertionError:
-                logging.fatal("Multiple elements found for %s", path)
-                logging.fatal([get_text(el) for el in elems])
-                raise
-
-            # handle enum types
-            if ":" in config:
-                record[config.split(":")[0]] = config.split(":")[1]
-                return
-            record[config] = get_text(elems[0])
-        return
-
-    entity = config["entity"]
-    for idx, elem in enumerate(elems):
-        srecord = {}
-
-        pk = get_pk(tree, config)
-        if pk:
-            srecord["id"] = pk
-        else:
-            srecord["id"] = f"{len(TABLES[entity])}"
-
-        if parent_pk:
-            srecord[f"{parent_entity}_id"] = parent_pk
-        for subpath, subconfig in config["fields"].items():
-            process_path(elem, subpath, subconfig, srecord, entity, pk)
-
-        TABLES[entity].append(srecord)
-
-
-def process_doc(doc):
-
-    #
-    # doc = doc.replace("&mgr;", "&mu;")
-    # doc = doc.replace("&thgr;", "&theta;")
-    # doc = doc.replace("&Dgr;", "&Delta;")
-    # doc = doc.replace("&agr;", "&alpha;")
-    # doc = doc.replace("&bgr;", "&beta;")
-    doc = doc.replace("&IndentingNewLine;", "&#xF3A3;")
-    doc = doc.replace("&LeftBracketingBar;", "&#xF603;")
-    doc = doc.replace("&RightBracketingBar;", "&#xF604;")
-    doc = doc.replace("&LeftDoubleBracketingBar;", "&#xF605;")
-    doc = doc.replace("&RightDoubleBracketingBar;", "&#xF606;")
-
-    # parser = etree.XMLParser(load_dtd=True, ns_clean=True, dtd_validation=True)
-    parser = etree.XMLParser(
-        load_dtd=True, resolve_entities=True, ns_clean=True, dtd_validation=True
-    )
-    # parser = etree.XMLParser(resolve_entities=False)
-    # parser = etree.XMLParser(load_dtd=True, resolve_entities=False)
-    parser.resolvers.add(DTDResolver())
-    tree = etree.parse(BytesIO(doc.encode("utf8")), parser)
-
-    for path, config in CONFIG.items():
-        process_path(tree, path, config, {})
-
-
-def get_fieldnames():
-    """ On python >=3.7, dictionaries maintain key order, so fields are guaranteed to be
-        returned in the order in which they appear in the config file.  To guarantee this
-        on versions of python <3.7 (insofar as it matters), collections.OrderedDict would
-        have to be used here.
-    """
-
-    fieldnames = defaultdict(list)
-
-    def add_fieldnames(config, _fieldnames, parent_entity=None):
         if isinstance(config, str):
-            if ":" in config:
-                _fieldnames.append(config.split(":")[0])
-                return
-            if config.startswith("|"):
-                _fieldnames.append(config[1:])
-                return
-            _fieldnames.append(config)
+            if elems:
+
+                if config.startswith("|"):
+                    record[config[1:]] = "|".join(
+                        [self.get_text(elem) for elem in elems]
+                    )
+                    return
+
+                try:
+                    assert len(elems) == 1
+                except AssertionError:
+                    logging.fatal("Multiple elements found for %s", path)
+                    logging.fatal([self.get_text(el) for el in elems])
+                    raise
+
+                # handle enum types
+                if ":" in config:
+                    record[config.split(":")[0]] = config.split(":")[1]
+                    return
+                record[config] = self.get_text(elems[0])
             return
 
         entity = config["entity"]
-        _fieldnames = []
-        if config.get("pk") or parent_entity:
-            _fieldnames.append("id")
-        if parent_entity:
-            _fieldnames.append(f"{parent_entity}_id")
-        for subconfig in config["fields"].values():
-            add_fieldnames(subconfig, _fieldnames, entity)
-        # different keys may be appending to the same table(s), so we're appending
-        #  to lists of fieldnames here.
-        fieldnames[entity] = list(
-            dict.fromkeys(fieldnames[entity] + _fieldnames).keys()
+        for elem in elems:
+            srecord = {}
+
+            pk = self.get_pk(tree, config)
+            if pk:
+                srecord["id"] = pk
+            else:
+                srecord["id"] = f"{len(self.tables[entity])}"
+
+            if parent_pk:
+                srecord[f"{parent_entity}_id"] = parent_pk
+            for subpath, subconfig in config["fields"].items():
+                self.process_path(elem, subpath, subconfig, srecord, entity, pk)
+
+            self.tables[entity].append(srecord)
+
+    def process_doc(self, doc):
+
+        doc = replace_missing_mathml_ents(doc)
+
+        tree = etree.parse(BytesIO(doc.encode("utf8")), self.parser)
+
+        for path, config in self.config.items():
+            self.process_path(tree, path, config, {})
+
+    def convert(self):
+        for input_file in self.xml_files:
+
+            logging.info(colored("Processing %s...", "green"), input_file.resolve())
+
+            for i, doc in enumerate(self.yield_xml_doc(input_file)):
+                if i % 100 == 0:
+                    logging.debug(colored("Processing document %d...", "cyan"), i + 1)
+                try:
+                    self.process_doc(doc)
+                except (AssertionError, etree.XMLSyntaxError) as exc:
+                    logging.debug(doc)
+                    p_id = re.search(
+                        r"<B210><DNUM><PDAT>(\d+)<\/PDAT><\/DNUM><\/B210>", doc
+                    ).group(1)
+                    logging.warning(
+                        colored("ID %s: %s (record has not been parsed)", "red"),
+                        p_id,
+                        exc.msg,
+                    )
+
+            logging.info(colored("...%d records processed!", "green"), i + 1)
+
+    def get_fieldnames(self):
+        """ On python >=3.7, dictionaries maintain key order, so fields are guaranteed to be
+            returned in the order in which they appear in the config file.  To guarantee this
+            on versions of python <3.7 (insofar as it matters), collections.OrderedDict would
+            have to be used here.
+        """
+
+        fieldnames = defaultdict(list)
+
+        def add_fieldnames(config, _fieldnames, parent_entity=None):
+            if isinstance(config, str):
+                if ":" in config:
+                    _fieldnames.append(config.split(":")[0])
+                    return
+                if config.startswith("|"):
+                    _fieldnames.append(config[1:])
+                    return
+                _fieldnames.append(config)
+                return
+
+            entity = config["entity"]
+            _fieldnames = []
+            if config.get("pk") or parent_entity:
+                _fieldnames.append("id")
+            if parent_entity:
+                _fieldnames.append(f"{parent_entity}_id")
+            for subconfig in config["fields"].values():
+                add_fieldnames(subconfig, _fieldnames, entity)
+            # different keys may be appending rows to the same table(s), so we're appending
+            #  to lists of fieldnames here.
+            fieldnames[entity] = list(
+                dict.fromkeys(fieldnames[entity] + _fieldnames).keys()
+            )
+
+        for config in self.config.values():
+            add_fieldnames(config, [])
+
+        return fieldnames
+
+    def write_csv_files(self):
+
+        fieldnames = self.get_fieldnames()
+
+        logging.info(
+            colored("Writing csv files to %s ...", "green"), self.output_path.resolve()
         )
-
-    for config in CONFIG.values():
-        add_fieldnames(config, [])
-
-    return fieldnames
+        for tablename, rows in self.tables.items():
+            output_file = self.output_path / f"{tablename}.csv"
+            with output_file.open("w") as _fh:
+                writer = csv.DictWriter(_fh, fieldnames=fieldnames[tablename])
+                writer.writeheader()
+                writer.writerows(rows)
 
 
 def main():
@@ -265,11 +316,18 @@ def main():
     )
 
     arg_parser.add_argument(
-        "-x",
-        "--xml-source",
+        "-i",
+        "--xml-input",
         action="store",
         required=True,
         help='"XML" file or directory to parse recursively',
+    )
+
+    arg_parser.add_argument(
+        "-r",
+        "--recurse",
+        action="store_true",
+        help='if supplied, the parser will search subdirectories for "XML" files to parse',
     )
 
     arg_parser.add_argument(
@@ -288,11 +346,18 @@ def main():
         help="path to folder where dtds and related documents can be found",
     )
 
-    parser.add_argument(
-        "-r",
-        "--recurse",
+    arg_parser.add_argument(
+        "-o",
+        "--output-path",
+        action="store",
+        required=True,
+        help="path to folder in which to save output (will be created if necessary)",
+    )
+
+    arg_parser.add_argument(
+        "--no-validate",
         action="store_true",
-        help='if supplied, the parser will search subdirectories for "XML" files to parse',
+        help="skip validation of input XML (for speed)",
     )
 
     args = arg_parser.parse_args()
@@ -301,34 +366,9 @@ def main():
     log_level = logging.CRITICAL if args.quiet else log_level
     logging.basicConfig(level=log_level, format="%(message)s")
 
-    logging.info("Processing %s...", INPUT_FILE)
-    for i, doc in enumerate(yield_xml_doc(INPUT_FILE)):
-        if i % 100 == 0:
-            logging.debug("Processing document %d...", i + 1)
-        try:
-            process_doc(doc)
-        except (AssertionError, etree.XMLSyntaxError) as exc:
-            logging.debug(doc)
-            p_id = re.search(
-                r"<B210><DNUM><PDAT>(\d+)<\/PDAT><\/DNUM><\/B210>", doc
-            ).group(1)
-            logging.warning("%s: %s", p_id, exc.msg)
-            # raise
-    logging.info("...%d records processed!", i + 1)
-
-    # import pprint
-    # pprint.pprint(TABLES)
-
-    fieldnames = get_fieldnames()
-    # import pprint
-    # pprint.pprint(fieldnames)
-
-    logging.info("Writing csv files...")
-    for tablename, rows in TABLES.items():
-        with open(f"../output/{tablename}.csv", "w") as _fh:
-            writer = csv.DictWriter(_fh, fieldnames=fieldnames[tablename])
-            writer.writeheader()
-            writer.writerows(rows)
+    convertor = DocdbToTabular(**vars(args))
+    convertor.convert()
+    convertor.write_csv_files()
 
 
 if __name__ == "__main__":
