@@ -38,6 +38,10 @@
 
       See `replace_missing_mathml_ents()` below...
 
+      - version of mmlextra.ent from here:
+        https://github.com/martinklepsch/patalyze/blob/master/resources/parsedir/mmlextra.ent
+        seems to have what's required?
+
 
     ## CONFIG / DESIRED OUTPUT ISSUES
 
